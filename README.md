@@ -5,7 +5,7 @@
 
 ## 🇺🇸 English
 
-A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome. But also support other browsers like Edge and Brave.
+A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome. It also support Edge.
 
 ### Features
 
@@ -30,7 +30,7 @@ A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome.
 
 ## 🇨🇳 中文
 
-一个轻量级 AutoHotkey v2 脚本，用于增强 Chrome 的标签栏操作体验。 但也支持如Edge或者Brave浏览器。
+一个轻量级 AutoHotkey v2 脚本，用于增强 Chrome 的标签栏操作体验。也支持Edge浏览器。
 
 ### 功能
 
