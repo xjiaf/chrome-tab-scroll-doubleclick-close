@@ -15,9 +15,6 @@ A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome.
 * **🔄 Scroll to Switch Tabs**
   When the cursor is over the tab bar, use the mouse wheel to switch tabs. *(Default: On)*
 
-* **🔖 Open Bookmarks in New Tab**
-  Click a bookmark and it will open in a new tab by simulating **Ctrl+Click**. *(Default: Off — enable in the tray menu)*
-
 * **❌ Right-Click to Close Tab**
   Optional: close a tab via right-click on the tab bar. *(Default: Off)*
 
@@ -42,9 +39,6 @@ A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome.
 
 * **🔄 滚轮切换标签页**
   鼠标悬停在标签栏时滚动滚轮切换标签。（默认：开启）
-
-* **🔖 书签新标签页打开**
-  点击书签时模拟 **Ctrl+点击** 在新标签页打开。（默认：关闭，需在托盘菜单开启）
 
 * **❌ 右键关闭标签页**
   可选：右键关闭标签页。（默认：关闭）
