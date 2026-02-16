@@ -3,14 +3,14 @@
 #Warn All, Off
 
 ; ========================================================
-; Initialization
+; Initialization & Configuration
 ; ========================================================
 SetWorkingDir(A_ScriptDir)
 global INI_FILE := "settings.ini"
 global STARTUP_LNK := A_Startup . "\ChromeTabEnhancer.lnk"
+global OrigFocusHwnd := 0
 
-; Create default config if missing
-; 0 = Off, 1 = Chrome Only, 2 = Edge Only, 3 = Both
+; Initialize default settings if INI file is missing
 if !FileExist(INI_FILE) {
     IniWrite("3", INI_FILE, "Options", "DoubleClickClose")
     IniWrite("3", INI_FILE, "Options", "ScrollSwitchTab")
@@ -19,7 +19,7 @@ if !FileExist(INI_FILE) {
     IniWrite("EN", INI_FILE, "System", "Language")
 }
 
-; Read Settings
+; Load settings
 global Opt_Double   := IniRead(INI_FILE, "Options", "DoubleClickClose", "3")
 global Opt_Scroll   := IniRead(INI_FILE, "Options", "ScrollSwitchTab", "3")
 global Opt_Right    := IniRead(INI_FILE, "Options", "RightClickClose", "0")
@@ -27,7 +27,7 @@ global Opt_HideIcon := IniRead(INI_FILE, "Options", "HideTrayIcon", "0")
 global Cur_Lang     := IniRead(INI_FILE, "System", "Language", "EN")
 
 ; ========================================================
-; Language Data
+; Language & UI Data
 ; ========================================================
 global LangData := Map(
     "ZH", Map(
@@ -63,11 +63,10 @@ global LangData := Map(
 )
 
 ; ========================================================
-; Tray Icon Management
+; Tray Menu Management
 ; ========================================================
 ToggleTrayIconState(*) {
     global Opt_HideIcon
-
     if (A_IconHidden) {
         A_IconHidden := false
         Opt_HideIcon := "0"
@@ -79,12 +78,10 @@ ToggleTrayIconState(*) {
         Opt_HideIcon := "1"
         ToolTip("Tray Icon: Hidden (Press Ctrl+Alt+H to show)")
     }
-
     IniWrite(Opt_HideIcon, INI_FILE, "Options", "HideTrayIcon")
     SetTimer () => ToolTip(), -2000
 }
 
-; Apply hidden state on startup
 if (Opt_HideIcon == "1") {
     A_IconHidden := true
 } else {
@@ -92,23 +89,14 @@ if (Opt_HideIcon == "1") {
     BuildMenu()
 }
 
-; ========================================================
-; Global Hotkey
-; ========================================================
-
-; [Ctrl + Alt + H] Toggle Tray Icon
+; Global Hotkey to toggle tray icon visibility
 ^!h::ToggleTrayIconState()
 
-; ========================================================
-; Menu Construction
-; ========================================================
 BuildMenu() {
     A_TrayMenu.Delete()
     T := LangData[Cur_Lang]
-
     opts := Map("0", T["OptOff"], "1", T["OptChrome"], "2", T["OptEdge"], "3", T["OptBoth"])
 
-    ; --- Double Click Submenu ---
     MenuDouble := Menu()
     MenuDouble.Add(opts["0"], (*) => SetOption("Double", "0"))
     MenuDouble.Add(opts["1"], (*) => SetOption("Double", "1"))
@@ -116,7 +104,6 @@ BuildMenu() {
     MenuDouble.Add(opts["3"], (*) => SetOption("Double", "3"))
     MenuDouble.Check(opts[Opt_Double])
 
-    ; --- Scroll Submenu ---
     MenuScroll := Menu()
     MenuScroll.Add(opts["0"], (*) => SetOption("Scroll", "0"))
     MenuScroll.Add(opts["1"], (*) => SetOption("Scroll", "1"))
@@ -124,7 +111,6 @@ BuildMenu() {
     MenuScroll.Add(opts["3"], (*) => SetOption("Scroll", "3"))
     MenuScroll.Check(opts[Opt_Scroll])
 
-    ; --- Right Click Submenu ---
     MenuRight := Menu()
     MenuRight.Add(opts["0"], (*) => SetOption("Right", "0"))
     MenuRight.Add(opts["1"], (*) => SetOption("Right", "1"))
@@ -154,7 +140,6 @@ UpdateTrayTip() {
     try TraySetIcon("shell32.dll", 239)
 }
 
-; --- Settings Toggles ---
 SetOption(feature, val) {
     global Opt_Double, Opt_Scroll, Opt_Right
     if (feature == "Double") {
@@ -187,29 +172,62 @@ ToggleStartup(*) {
 }
 
 ; ========================================================
-; Helper Functions
+; Core Helper Functions
 ; ========================================================
-IsOverTabBar() {
+
+; Restores focus to the original window after a background scroll operation
+RestoreFocusTask() {
+    global OrigFocusHwnd
+    if (OrigFocusHwnd) {
+        if WinExist("ahk_id " OrigFocusHwnd)
+            WinActivate("ahk_id " OrigFocusHwnd)
+        OrigFocusHwnd := 0
+    }
+}
+
+; Determines if the cursor is hovering over the browser's tab bar (DPI-aware)
+IsHoveringTabBar(&hoveredHwnd := 0) {
     MouseGetPos(,, &hWnd)
-    if !WinActive("ahk_id " hWnd)
-        return false
+    hoveredHwnd := hWnd
+
     try {
         minMax := WinGetMinMax("ahk_id " hWnd)
-        MouseGetPos(, &yPos)
+        exeName := WinGetProcessName("ahk_id " hWnd)
+
+        CoordMode("Mouse", "Screen")
+        MouseGetPos(, &screenY)
+        WinGetPos(, &winY, , , "ahk_id " hWnd)
+        CoordMode("Mouse", "Window")
+
+        yPos := screenY - winY
+        dpiScale := A_ScreenDPI / 96
+
+        ; Browser-specific tab bar height definitions (at 100% scale)
+        if (exeName = "chrome.exe") {
+            maxHeight := 46
+            winHeight := 38
+        } else if (exeName = "msedge.exe") {
+            maxHeight := 48
+            winHeight := 42
+        } else {
+            maxHeight := 46
+            winHeight := 40
+        }
+
         if (minMax = 1) ; Maximized
-            return (yPos >= 0 && yPos <= 28)
+            return (yPos >= 0 && yPos <= (maxHeight * dpiScale))
         else if (minMax = 0) ; Windowed
-            return (yPos >= 0 && yPos <= 45)
+            return (yPos >= 0 && yPos <= (winHeight * dpiScale))
     }
     return false
 }
 
-IsTargetBrowser(optValue) {
+; Checks if the target window matches the user's browser preferences
+IsTargetBrowser(optValue, hWnd) {
     if (optValue == "0")
         return false
-
     try {
-        exeName := WinGetProcessName("A")
+        exeName := WinGetProcessName("ahk_id " hWnd)
         if (optValue == "1" && exeName == "chrome.exe")
             return true
         if (optValue == "2" && exeName == "msedge.exe")
@@ -220,64 +238,128 @@ IsTargetBrowser(optValue) {
     return false
 }
 
-; ========================================================
-; Browser Context Hotkeys
-; ========================================================
-#HotIf WinActive("ahk_exe chrome.exe") || WinActive("ahk_exe msedge.exe")
+; Validates if the current hover state allows for tab actions
+CanTriggerTabAction() {
+    if !IsHoveringTabBar(&hWnd)
+        return false
+    return IsTargetBrowser("3", hWnd)
+}
 
-; --- Double-Click Tab Close ---
+; ========================================================
+; Browser Tab Enhancer Hotkeys
+; ========================================================
+#HotIf CanTriggerTabAction()
+
+; --------------------------------------------------------
+; Feature: Double-Click to Close Tab
+; --------------------------------------------------------
 ~LButton::
 {
-    if !IsTargetBrowser(Opt_Double)
+    static LastClickTime := 0
+    static LastWinX := 0, LastWinY := 0, LastWinW := 0, LastWinH := 0
+    static LastTitle := ""
+
+    IsHoveringTabBar(&hWnd)
+    if !IsTargetBrowser(Opt_Double, hWnd)
         return
 
-    if (A_PriorHotkey == "~LButton" && A_TimeSincePriorHotkey < 300) {
-        if IsOverTabBar() {
-            try {
-                winID := WinExist("A")
-                stateBefore := WinGetMinMax(winID)
+    ; Detect Double-Click (400ms threshold)
+    if (A_TickCount - LastClickTime < 400) {
+        LastClickTime := 0
 
-                Sleep(50)
-                if !WinExist(winID)
-                    return
-                stateAfter := WinGetMinMax(winID)
+        ; Wait for physical button release to bypass browser misclick prevention
+        KeyWait("LButton", "T0.3")
 
-                ; Ignore if window state changed (Max/Restore)
-                if (stateBefore != stateAfter)
-                    return
+        try {
+            Sleep(80) ; Allow Windows OS time to process native double-click events
 
-                Send("^w") ; Close Tab
-            }
+            if !WinExist("ahk_id " hWnd)
+                return
+
+            WinGetPos(&curX, &curY, &curW, &curH, "ahk_id " hWnd)
+            curTitle := WinGetTitle("ahk_id " hWnd)
+
+            ; Intercept action if the window shape/position changed (e.g., Maximized)
+            if (LastWinX != curX || LastWinY != curY || LastWinW != curW || LastWinH != curH)
+                return
+
+            ; Intercept action if the tab title changed (e.g., clicking '+' or closing multiple tabs)
+            if (LastTitle != curTitle)
+                return
+
+            ; Send MButton to natively close the target tab
+            Send("{MButton}")
+        }
+    } else {
+        ; Register First-Click metrics
+        LastClickTime := A_TickCount
+        try {
+            WinGetPos(&LastWinX, &LastWinY, &LastWinW, &LastWinH, "ahk_id " hWnd)
+            LastTitle := WinGetTitle("ahk_id " hWnd)
         }
     }
 }
 
-; --- Scroll Switch Tabs ---
+; --------------------------------------------------------
+; Feature: Scroll to Switch Tabs (Active & Background Support)
+; --------------------------------------------------------
+#MaxThreadsPerHotkey 5 ; Enable concurrent thread processing for rapid scroll ticks
 WheelUp::
 WheelDown::
 {
-    if !IsTargetBrowser(Opt_Scroll) {
-        Send("{" A_ThisHotkey "}")
+    IsHoveringTabBar(&hWnd)
+    global OrigFocusHwnd
+
+    if !IsTargetBrowser(Opt_Scroll, hWnd) {
+        Send("{Blind}{" A_ThisHotkey "}")
         return
     }
 
-    if IsOverTabBar() {
-        if (A_ThisHotkey = "WheelDown")
-            Send("^{PgDn}")
-        else
-            Send("^{PgUp}")
+    keyToSend := (A_ThisHotkey = "WheelDown") ? "^{PgDn}" : "^{PgUp}"
+
+    if WinActive("ahk_id " hWnd) {
+        ; Scenario: Browser is already the active window
+        Send(keyToSend)
+        if (OrigFocusHwnd)
+            SetTimer RestoreFocusTask, -400
+
+    } else if (OrigFocusHwnd) {
+        ; Scenario: Rapid consecutive scrolling in the background
+        WinActivate("ahk_id " hWnd)
+        Send(keyToSend)
+        SetTimer RestoreFocusTask, -400
+
     } else {
-        Send("{" A_ThisHotkey "}")
+        ; Scenario: First scroll action initiated in the background
+        curActive := WinGetID("A")
+        if (curActive != hWnd) {
+            OrigFocusHwnd := curActive
+        }
+
+        WinActivate("ahk_id " hWnd)
+        if !WinActive("ahk_id " hWnd)
+            WinWaitActive("ahk_id " hWnd, , 0.15)
+
+        Send(keyToSend)
+        SetTimer RestoreFocusTask, -400
     }
 }
+#MaxThreadsPerHotkey 1
 
-; --- Right Click Close Tab ---
+; --------------------------------------------------------
+; Feature: Right-Click to Close Tab
+; --------------------------------------------------------
 RButton::
 {
-    if (IsTargetBrowser(Opt_Right) && IsOverTabBar()) {
+    IsHoveringTabBar(&hWnd)
+
+    if IsTargetBrowser(Opt_Right, hWnd) {
+        ; MButton implicitly closes a background tab without stealing window focus
         Send("{MButton}")
         return
     }
+
+    ; Default Right-Click fallback
     Send("{RButton Down}")
     KeyWait("RButton")
     Send("{RButton Up}")
