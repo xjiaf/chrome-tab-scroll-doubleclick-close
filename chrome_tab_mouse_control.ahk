@@ -19,7 +19,7 @@ if !FileExist(INI_FILE) {
     IniWrite("0", INI_FILE, "Options", "HideTrayIcon")
 
     IniWrite("1", INI_FILE, "Layout", "Chrome")
-    IniWrite("2", INI_FILE, "Layout", "Edge")
+    IniWrite("1", INI_FILE, "Layout", "Edge")
 
     IniWrite("ZH", INI_FILE, "System", "Language")
 }
@@ -31,7 +31,7 @@ global Opt_Right        := IniRead(INI_FILE, "Options", "RightClickClose", "0")
 global Opt_HideIcon     := IniRead(INI_FILE, "Options", "HideTrayIcon", "0")
 
 global Opt_ChromeLayout := IniRead(INI_FILE, "Layout", "Chrome", "1")
-global Opt_EdgeLayout   := IniRead(INI_FILE, "Layout", "Edge", "2")
+global Opt_EdgeLayout   := IniRead(INI_FILE, "Layout", "Edge", "1")
 global Cur_Lang         := IniRead(INI_FILE, "System", "Language", "ZH")
 
 ; ========================================================
@@ -305,10 +305,14 @@ SendCloseTabClick(hWnd) {
 ~LButton:: {
     static LastClickTime := 0
     static LastWinX := 0, LastWinY := 0, LastWinW := 0, LastWinH := 0
+    static LastClickX := 0, LastClickY := 0
 
     IsHoveringTabBar(&hWnd)
     if !IsTargetBrowser(Opt_Double, hWnd)
         return
+
+    CoordMode("Mouse", "Window")
+    MouseGetPos(&curClickX, &curClickY)
 
     if (A_TickCount - LastClickTime < 400) {
         LastClickTime := 0
@@ -322,11 +326,16 @@ SendCloseTabClick(hWnd) {
             if (LastWinX != curX || LastWinY != curY || LastWinW != curW || LastWinH != curH)
                 return
 
+            ; Reject pseudo double-clicks that jump across tabs
+            if (Abs(LastClickX - curClickX) > 40 || Abs(LastClickY - curClickY) > 30)
+                return
+
             SendCloseTabClick(hWnd)
         }
     } else {
         LastClickTime := A_TickCount
         try WinGetPos(&LastWinX, &LastWinY, &LastWinW, &LastWinH, "ahk_id " hWnd)
+        LastClickX := curClickX, LastClickY := curClickY
     }
 }
 
