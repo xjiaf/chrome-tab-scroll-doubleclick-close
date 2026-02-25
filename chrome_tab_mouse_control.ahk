@@ -18,7 +18,6 @@ if !FileExist(INI_FILE) {
     IniWrite("0", INI_FILE, "Options", "RightClickClose")
     IniWrite("0", INI_FILE, "Options", "HideTrayIcon")
 
-    ; 新增：为 Chrome 和 Edge 独立保存布局设置 (1:顶部, 2:左侧窄, 3:左侧宽)
     IniWrite("1", INI_FILE, "Layout", "Chrome")
     IniWrite("2", INI_FILE, "Layout", "Edge")
 
@@ -213,7 +212,6 @@ RestoreFocusTask() {
     }
 }
 
-; 核心逻辑：自动识别浏览器类型，并应用该浏览器的专属布局判定
 IsHoveringTabBar(&hoveredHwnd) {
     MouseGetPos(,, &hWnd)
     hoveredHwnd := hWnd
@@ -222,7 +220,6 @@ IsHoveringTabBar(&hoveredHwnd) {
         minMax := WinGetMinMax("ahk_id " hWnd)
         exeName := WinGetProcessName("ahk_id " hWnd)
 
-        ; 获取当前悬停的浏览器对应的布局设置
         layoutMode := "0"
         if (exeName = "chrome.exe")
             layoutMode := Opt_ChromeLayout
@@ -240,18 +237,15 @@ IsHoveringTabBar(&hoveredHwnd) {
         yPos := screenY - winY
         dpiScale := A_ScreenDPI / 96
 
-        ; 计算顶部工具栏的高度 (排除左上角后退/刷新/侧边栏按钮的安全区)
         if (exeName = "chrome.exe")
             topSafeZone := (minMax = 1) ? 46 : 38
         else
             topSafeZone := (minMax = 1) ? 48 : 42
 
-        ; --- 垂直模式严格判定 ---
         if (layoutMode == "2" || layoutMode == "3") {
             if (yPos < (topSafeZone * dpiScale))
                 return false
 
-            ; 优化：宽栏模式下，Chrome 设为 320px，Edge 缩小为更紧凑的 230px
             if (layoutMode == "2")
                 maxWidth := (exeName = "chrome.exe") ? 52 : 48
             else
@@ -260,7 +254,6 @@ IsHoveringTabBar(&hoveredHwnd) {
             return (xPos >= 0 && xPos <= (maxWidth * dpiScale))
         }
 
-        ; --- 水平模式严格判定 ---
         if (layoutMode == "1") {
             return (yPos >= 0 && yPos <= (topSafeZone * dpiScale))
         }
@@ -285,7 +278,6 @@ CanTriggerTabAction() {
     return IsTargetBrowser("3", hWnd)
 }
 
-; 专门解决垂直标签页原生文本区不响应 MButton 的“空间折跃”函数
 SendCloseTabClick(hWnd) {
     exeName := WinGetProcessName("ahk_id " hWnd)
     layoutMode := (exeName = "chrome.exe") ? Opt_ChromeLayout : (exeName = "msedge.exe" ? Opt_EdgeLayout : "1")
@@ -295,15 +287,13 @@ SendCloseTabClick(hWnd) {
         CoordMode("Mouse", "Window")
         MouseGetPos(&mX, &mY)
 
-        ; 如果点击发生在图标右侧的文本区 (> 52px)，将点击重定向到图标的中心点 (24px 处)
         if (mX > 52 * dpiScale) {
             iconX := 24 * dpiScale
-            MouseClick("Middle", iconX, mY, 1, 0) ; 瞬间在图标处点击中键
-            MouseMove(mX, mY, 0)                  ; 瞬间回位
+            MouseClick("Middle", iconX, mY, 1, 0)
+            MouseMove(mX, mY, 0)
             return
         }
     }
-    ; 如果是顶部布局或刚好点在图标上，直接原位发送中键
     Send("{MButton}")
 }
 
@@ -332,7 +322,6 @@ SendCloseTabClick(hWnd) {
             if (LastWinX != curX || LastWinY != curY || LastWinW != curW || LastWinH != curH)
                 return
 
-            ; 调用修正过碰撞体积的闭合函数
             SendCloseTabClick(hWnd)
         }
     } else {
@@ -380,7 +369,6 @@ WheelDown:: {
 RButton:: {
     IsHoveringTabBar(&hWnd)
     if IsTargetBrowser(Opt_Right, hWnd) {
-        ; 右键也应用修正过碰撞体积的闭合函数
         SendCloseTabClick(hWnd)
         return
     }
