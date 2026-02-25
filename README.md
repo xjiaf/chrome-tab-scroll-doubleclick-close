@@ -1,11 +1,10 @@
-
 # Chrome Tab Mouse Enhancer (AutoHotkey v2)
 
 <a name="english"></a>
 
 ## 🇺🇸 English
 
-A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome. It also support Edge.
+A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome. It also supports Edge.
 
 ### Features
 
@@ -17,6 +16,9 @@ A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome.
 
 * **❌ Right-Click to Close Tab**
   Optional: close a tab via right-click on the tab bar. *(Default: Off)*
+
+* **📏 Vertical Tabs Support**
+  Supports both traditional top tabs and vertical tabs. You can configure layouts independently for Chrome and Edge.
 
 ### How to use
 
@@ -30,7 +32,7 @@ A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome.
 
 ## 🇨🇳 中文
 
-一个轻量级 AutoHotkey v2 脚本，用于增强 Chrome 的标签栏操作体验。也支持Edge浏览器。
+一个轻量级 AutoHotkey v2 脚本，用于增强 Chrome 的标签栏操作体验。也支持 Edge 浏览器。
 
 ### 功能
 
@@ -42,6 +44,9 @@ A lightweight AutoHotkey v2 script that improves tab-bar interactions in Chrome.
 
 * **❌ 右键关闭标签页**
   可选：右键关闭标签页。（默认：关闭）
+
+* **📏 支持垂直标签页**
+  兼容传统顶部标签栏与垂直标签页，可为 Chrome 和 Edge 独立设置专属布局。
 
 ### 使用方法
 

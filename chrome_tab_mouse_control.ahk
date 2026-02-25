@@ -9,7 +9,6 @@ SetWorkingDir(A_ScriptDir)
 global INI_FILE := "settings.ini"
 global STARTUP_LNK := A_Startup . "\ChromeTabEnhancer.lnk"
 
-; Store the original active window handle for background scrolling
 global OrigFocusHwnd := 0
 
 ; Create default config if missing
@@ -18,25 +17,35 @@ if !FileExist(INI_FILE) {
     IniWrite("3", INI_FILE, "Options", "ScrollSwitchTab")
     IniWrite("0", INI_FILE, "Options", "RightClickClose")
     IniWrite("0", INI_FILE, "Options", "HideTrayIcon")
-    IniWrite("EN", INI_FILE, "System", "Language")
+
+    ; 新增：为 Chrome 和 Edge 独立保存布局设置 (1:顶部, 2:左侧窄, 3:左侧宽)
+    IniWrite("1", INI_FILE, "Layout", "Chrome")
+    IniWrite("2", INI_FILE, "Layout", "Edge")
+
+    IniWrite("ZH", INI_FILE, "System", "Language")
 }
 
 ; Read Settings
-global Opt_Double   := IniRead(INI_FILE, "Options", "DoubleClickClose", "3")
-global Opt_Scroll   := IniRead(INI_FILE, "Options", "ScrollSwitchTab", "3")
-global Opt_Right    := IniRead(INI_FILE, "Options", "RightClickClose", "0")
-global Opt_HideIcon := IniRead(INI_FILE, "Options", "HideTrayIcon", "0")
-global Cur_Lang     := IniRead(INI_FILE, "System", "Language", "EN")
+global Opt_Double       := IniRead(INI_FILE, "Options", "DoubleClickClose", "3")
+global Opt_Scroll       := IniRead(INI_FILE, "Options", "ScrollSwitchTab", "3")
+global Opt_Right        := IniRead(INI_FILE, "Options", "RightClickClose", "0")
+global Opt_HideIcon     := IniRead(INI_FILE, "Options", "HideTrayIcon", "0")
+
+global Opt_ChromeLayout := IniRead(INI_FILE, "Layout", "Chrome", "1")
+global Opt_EdgeLayout   := IniRead(INI_FILE, "Layout", "Edge", "2")
+global Cur_Lang         := IniRead(INI_FILE, "System", "Language", "ZH")
 
 ; ========================================================
 ; Language Data
 ; ========================================================
 global LangData := Map(
     "ZH", Map(
-        "Title",      "浏览器标签增强脚本",
+        "Title",      "浏览器标签增强脚本 (双擎独立版)",
         "Double",     "双击关闭标签页",
         "Scroll",     "滚轮切换标签页",
         "Right",      "右键关闭标签页",
+        "LayoutC",    "Chrome 布局设置",
+        "LayoutE",    "Edge 布局设置",
         "HideIcon",   "显示/隐藏托盘图标 (Ctrl+Alt+H)",
         "Startup",    "开机自动启动",
         "SwitchLang", "Switch to English",
@@ -45,13 +54,18 @@ global LangData := Map(
         "OptOff",     "关闭",
         "OptChrome",  "仅 Chrome 生效",
         "OptEdge",    "仅 Edge 生效",
-        "OptBoth",    "两者均生效"
+        "OptBoth",    "两者均生效",
+        "ModeTop",    "顶部水平标签栏",
+        "ModeVertN",  "左侧垂直标签栏 (窄栏/折叠状态)",
+        "ModeVertW",  "左侧垂直标签栏 (宽栏/展开状态)"
     ),
     "EN", Map(
-        "Title",      "Browser Tab Enhancer",
+        "Title",      "Browser Tab Enhancer (Dual Engine)",
         "Double",     "Double-Click to Close Tab",
         "Scroll",     "Scroll to Switch Tabs",
         "Right",      "Right-Click to Close Tab",
+        "LayoutC",    "Chrome Layout",
+        "LayoutE",    "Edge Layout",
         "HideIcon",   "Toggle Tray Icon (Ctrl+Alt+H)",
         "Startup",    "Run at Startup",
         "SwitchLang", "切换到中文",
@@ -60,43 +74,36 @@ global LangData := Map(
         "OptOff",     "Off",
         "OptChrome",  "Chrome Only",
         "OptEdge",    "Edge Only",
-        "OptBoth",    "Both Active"
+        "OptBoth",    "Both Active",
+        "ModeTop",    "Top Horizontal Tabs",
+        "ModeVertN",  "Left Vertical Tabs (Narrow/Collapsed)",
+        "ModeVertW",  "Left Vertical Tabs (Wide/Expanded)"
     )
 )
 
 ; ========================================================
-; Tray Icon Management
+; Tray Icon Management & Global Hotkeys
 ; ========================================================
 ToggleTrayIconState(*) {
     global Opt_HideIcon
-
     if (A_IconHidden) {
-        A_IconHidden := false
-        Opt_HideIcon := "0"
-        UpdateTrayTip()
-        BuildMenu()
-        ToolTip("Tray Icon: Visible")
+        A_IconHidden := false, Opt_HideIcon := "0"
+        UpdateTrayTip(), BuildMenu(), ToolTip("Tray Icon: Visible")
     } else {
-        A_IconHidden := true
-        Opt_HideIcon := "1"
+        A_IconHidden := true, Opt_HideIcon := "1"
         ToolTip("Tray Icon: Hidden (Press Ctrl+Alt+H to show)")
     }
-
     IniWrite(Opt_HideIcon, INI_FILE, "Options", "HideTrayIcon")
     SetTimer () => ToolTip(), -2000
 }
 
-; Apply hidden state on startup
-if (Opt_HideIcon == "1") {
+if (Opt_HideIcon == "1")
     A_IconHidden := true
-} else {
+else {
     UpdateTrayTip()
     BuildMenu()
 }
 
-; ========================================================
-; Global Hotkey
-; ========================================================
 ^!h::ToggleTrayIconState()
 
 ; ========================================================
@@ -105,33 +112,46 @@ if (Opt_HideIcon == "1") {
 BuildMenu() {
     A_TrayMenu.Delete()
     T := LangData[Cur_Lang]
-
     opts := Map("0", T["OptOff"], "1", T["OptChrome"], "2", T["OptEdge"], "3", T["OptBoth"])
+    modeOpts := Map("1", T["ModeTop"], "2", T["ModeVertN"], "3", T["ModeVertW"])
 
-    MenuDouble := Menu()
+    MenuDouble := Menu(), MenuScroll := Menu(), MenuRight := Menu()
+    MenuChrome := Menu(), MenuEdge := Menu()
+
     MenuDouble.Add(opts["0"], (*) => SetOption("Double", "0"))
     MenuDouble.Add(opts["1"], (*) => SetOption("Double", "1"))
     MenuDouble.Add(opts["2"], (*) => SetOption("Double", "2"))
     MenuDouble.Add(opts["3"], (*) => SetOption("Double", "3"))
     MenuDouble.Check(opts[Opt_Double])
 
-    MenuScroll := Menu()
     MenuScroll.Add(opts["0"], (*) => SetOption("Scroll", "0"))
     MenuScroll.Add(opts["1"], (*) => SetOption("Scroll", "1"))
     MenuScroll.Add(opts["2"], (*) => SetOption("Scroll", "2"))
     MenuScroll.Add(opts["3"], (*) => SetOption("Scroll", "3"))
     MenuScroll.Check(opts[Opt_Scroll])
 
-    MenuRight := Menu()
     MenuRight.Add(opts["0"], (*) => SetOption("Right", "0"))
     MenuRight.Add(opts["1"], (*) => SetOption("Right", "1"))
     MenuRight.Add(opts["2"], (*) => SetOption("Right", "2"))
     MenuRight.Add(opts["3"], (*) => SetOption("Right", "3"))
     MenuRight.Check(opts[Opt_Right])
 
+    MenuChrome.Add(modeOpts["1"], (*) => SetOption("ChromeLayout", "1"))
+    MenuChrome.Add(modeOpts["2"], (*) => SetOption("ChromeLayout", "2"))
+    MenuChrome.Add(modeOpts["3"], (*) => SetOption("ChromeLayout", "3"))
+    MenuChrome.Check(modeOpts[Opt_ChromeLayout])
+
+    MenuEdge.Add(modeOpts["1"], (*) => SetOption("EdgeLayout", "1"))
+    MenuEdge.Add(modeOpts["2"], (*) => SetOption("EdgeLayout", "2"))
+    MenuEdge.Add(modeOpts["3"], (*) => SetOption("EdgeLayout", "3"))
+    MenuEdge.Check(modeOpts[Opt_EdgeLayout])
+
     A_TrayMenu.Add(T["Double"], MenuDouble)
     A_TrayMenu.Add(T["Scroll"], MenuScroll)
     A_TrayMenu.Add(T["Right"], MenuRight)
+    A_TrayMenu.Add()
+    A_TrayMenu.Add(T["LayoutC"], MenuChrome)
+    A_TrayMenu.Add(T["LayoutE"], MenuEdge)
     A_TrayMenu.Add()
     A_TrayMenu.Add(T["Startup"], ToggleStartup)
     A_TrayMenu.Add(T["HideIcon"], ToggleTrayIconState)
@@ -152,25 +172,24 @@ UpdateTrayTip() {
 }
 
 SetOption(feature, val) {
-    global Opt_Double, Opt_Scroll, Opt_Right
-    if (feature == "Double") {
-        Opt_Double := val
-        IniWrite(val, INI_FILE, "Options", "DoubleClickClose")
-    } else if (feature == "Scroll") {
-        Opt_Scroll := val
-        IniWrite(val, INI_FILE, "Options", "ScrollSwitchTab")
-    } else if (feature == "Right") {
-        Opt_Right := val
-        IniWrite(val, INI_FILE, "Options", "RightClickClose")
-    }
+    global Opt_Double, Opt_Scroll, Opt_Right, Opt_ChromeLayout, Opt_EdgeLayout
+    if (feature == "Double")
+        Opt_Double := val, IniWrite(val, INI_FILE, "Options", "DoubleClickClose")
+    else if (feature == "Scroll")
+        Opt_Scroll := val, IniWrite(val, INI_FILE, "Options", "ScrollSwitchTab")
+    else if (feature == "Right")
+        Opt_Right := val, IniWrite(val, INI_FILE, "Options", "RightClickClose")
+    else if (feature == "ChromeLayout")
+        Opt_ChromeLayout := val, IniWrite(val, INI_FILE, "Layout", "Chrome")
+    else if (feature == "EdgeLayout")
+        Opt_EdgeLayout := val, IniWrite(val, INI_FILE, "Layout", "Edge")
     BuildMenu()
 }
 
 ToggleLanguage(*) {
     global Cur_Lang := (Cur_Lang = "ZH" ? "EN" : "ZH")
     IniWrite(Cur_Lang, INI_FILE, "System", "Language")
-    UpdateTrayTip()
-    BuildMenu()
+    UpdateTrayTip(), BuildMenu()
 }
 
 ToggleStartup(*) {
@@ -185,21 +204,17 @@ ToggleStartup(*) {
 ; ========================================================
 ; Helper Functions
 ; ========================================================
-
-; Timer function: Restores focus to the originally active window
 RestoreFocusTask() {
     global OrigFocusHwnd
     if (OrigFocusHwnd) {
-        if WinExist("ahk_id " OrigFocusHwnd) {
+        if WinExist("ahk_id " OrigFocusHwnd)
             WinActivate("ahk_id " OrigFocusHwnd)
-        }
-        ; Always reset the handle to prevent focus deadlock
         OrigFocusHwnd := 0
     }
 }
 
-; Dynamic DPI-aware height calculation for tab bar boundaries
-IsHoveringTabBar(&hoveredHwnd := 0) {
+; 核心逻辑：自动识别浏览器类型，并应用该浏览器的专属布局判定
+IsHoveringTabBar(&hoveredHwnd) {
     MouseGetPos(,, &hWnd)
     hoveredHwnd := hWnd
 
@@ -207,57 +222,89 @@ IsHoveringTabBar(&hoveredHwnd := 0) {
         minMax := WinGetMinMax("ahk_id " hWnd)
         exeName := WinGetProcessName("ahk_id " hWnd)
 
-        ; Use absolute screen coordinates for background window calculation
+        ; 获取当前悬停的浏览器对应的布局设置
+        layoutMode := "0"
+        if (exeName = "chrome.exe")
+            layoutMode := Opt_ChromeLayout
+        else if (exeName = "msedge.exe")
+            layoutMode := Opt_EdgeLayout
+        else
+            return false
+
         CoordMode("Mouse", "Screen")
-        MouseGetPos(, &screenY)
-        WinGetPos(, &winY, , , "ahk_id " hWnd)
+        MouseGetPos(&screenX, &screenY)
+        WinGetPos(&winX, &winY, &winW, &winH, "ahk_id " hWnd)
         CoordMode("Mouse", "Window")
 
+        xPos := screenX - winX
         yPos := screenY - winY
         dpiScale := A_ScreenDPI / 96
 
-        ; Browser-specific height tuning (base values at 100% scale)
-        if (exeName = "chrome.exe") {
-            maxHeight := 46
-            winHeight := 38 ; Strict limit for Windowed Chrome to avoid address bar
-        } else if (exeName = "msedge.exe") {
-            maxHeight := 48
-            winHeight := 42 ; Edge has a slightly thicker title bar area
-        } else {
-            maxHeight := 46
-            winHeight := 40
+        ; 计算顶部工具栏的高度 (排除左上角后退/刷新/侧边栏按钮的安全区)
+        if (exeName = "chrome.exe")
+            topSafeZone := (minMax = 1) ? 46 : 38
+        else
+            topSafeZone := (minMax = 1) ? 48 : 42
+
+        ; --- 垂直模式严格判定 ---
+        if (layoutMode == "2" || layoutMode == "3") {
+            if (yPos < (topSafeZone * dpiScale))
+                return false
+
+            ; 优化：宽栏模式下，Chrome 设为 320px，Edge 缩小为更紧凑的 230px
+            if (layoutMode == "2")
+                maxWidth := (exeName = "chrome.exe") ? 52 : 48
+            else
+                maxWidth := (exeName = "chrome.exe") ? 320 : 250
+
+            return (xPos >= 0 && xPos <= (maxWidth * dpiScale))
         }
 
-        if (minMax = 1) ; Maximized
-            return (yPos >= 0 && yPos <= (maxHeight * dpiScale))
-        else if (minMax = 0) ; Windowed
-            return (yPos >= 0 && yPos <= (winHeight * dpiScale))
+        ; --- 水平模式严格判定 ---
+        if (layoutMode == "1") {
+            return (yPos >= 0 && yPos <= (topSafeZone * dpiScale))
+        }
     }
     return false
 }
 
-; Check if hovered window matches target browser settings
 IsTargetBrowser(optValue, hWnd) {
     if (optValue == "0")
         return false
-
     try {
         exeName := WinGetProcessName("ahk_id " hWnd)
-        if (optValue == "1" && exeName == "chrome.exe")
-            return true
-        if (optValue == "2" && exeName == "msedge.exe")
-            return true
-        if (optValue == "3" && (exeName == "chrome.exe" || exeName == "msedge.exe"))
+        if (optValue == "1" && exeName = "chrome.exe") || (optValue == "2" && exeName = "msedge.exe") || (optValue == "3" && (exeName = "chrome.exe" || exeName = "msedge.exe"))
             return true
     }
     return false
 }
 
-; Verify if cursor is over a valid browser tab bar
 CanTriggerTabAction() {
     if !IsHoveringTabBar(&hWnd)
         return false
     return IsTargetBrowser("3", hWnd)
+}
+
+; 专门解决垂直标签页原生文本区不响应 MButton 的“空间折跃”函数
+SendCloseTabClick(hWnd) {
+    exeName := WinGetProcessName("ahk_id " hWnd)
+    layoutMode := (exeName = "chrome.exe") ? Opt_ChromeLayout : (exeName = "msedge.exe" ? Opt_EdgeLayout : "1")
+
+    if (layoutMode == "2" || layoutMode == "3") {
+        dpiScale := A_ScreenDPI / 96
+        CoordMode("Mouse", "Window")
+        MouseGetPos(&mX, &mY)
+
+        ; 如果点击发生在图标右侧的文本区 (> 52px)，将点击重定向到图标的中心点 (24px 处)
+        if (mX > 52 * dpiScale) {
+            iconX := 24 * dpiScale
+            MouseClick("Middle", iconX, mY, 1, 0) ; 瞬间在图标处点击中键
+            MouseMove(mX, mY, 0)                  ; 瞬间回位
+            return
+        }
+    }
+    ; 如果是顶部布局或刚好点在图标上，直接原位发送中键
+    Send("{MButton}")
 }
 
 ; ========================================================
@@ -265,9 +312,7 @@ CanTriggerTabAction() {
 ; ========================================================
 #HotIf CanTriggerTabAction()
 
-; Double-Click Tab Close
-~LButton::
-{
+~LButton:: {
     static LastClickTime := 0
     static LastWinX := 0, LastWinY := 0, LastWinW := 0, LastWinH := 0
 
@@ -276,42 +321,29 @@ CanTriggerTabAction() {
         return
 
     if (A_TickCount - LastClickTime < 400) {
-
         LastClickTime := 0
-
-        ; Prevent sending MButton before the physical LButton is released
         KeyWait("LButton", "T0.3")
 
         try {
-            ; Wait briefly for Windows to process native double-click actions (like resize/maximize)
             Sleep(80)
-
             if !WinExist("ahk_id " hWnd)
                 return
-
             WinGetPos(&curX, &curY, &curW, &curH, "ahk_id " hWnd)
-
-            ; Intercept if window shape/position changed (avoids triggering Autoscroll when maximizing)
             if (LastWinX != curX || LastWinY != curY || LastWinW != curW || LastWinH != curH)
                 return
 
-            ; Only send MButton if the window shape/position is completely unchanged
-            Send("{MButton}")
+            ; 调用修正过碰撞体积的闭合函数
+            SendCloseTabClick(hWnd)
         }
-
     } else {
         LastClickTime := A_TickCount
-
-        ; Record the exact window dimensions on the first click
         try WinGetPos(&LastWinX, &LastWinY, &LastWinW, &LastWinH, "ahk_id " hWnd)
     }
 }
 
-; Scroll Switch Tabs (Multi-thread allowed to catch fast scrolling ticks)
 #MaxThreadsPerHotkey 5
 WheelUp::
-WheelDown::
-{
+WheelDown:: {
     IsHoveringTabBar(&hWnd)
     global OrigFocusHwnd
 
@@ -320,58 +352,38 @@ WheelDown::
         return
     }
 
-    ; Determine keystroke to keep logic clean
     keyToSend := (A_ThisHotkey = "WheelDown") ? "^{PgDn}" : "^{PgUp}"
 
     if WinActive("ahk_id " hWnd) {
-        ; Browser is already active
         Send(keyToSend)
-
-        ; Refresh focus return timer if currently in a background scrolling streak
         if (OrigFocusHwnd)
             SetTimer RestoreFocusTask, -400
-
     } else if (OrigFocusHwnd) {
-        ; Subsequent rapid scroll ticks in background: instant response
         WinActivate("ahk_id " hWnd)
         Send(keyToSend)
         SetTimer RestoreFocusTask, -400
-
     } else {
-        ; First scroll tick in background: setup focus return and prevent self-loop
-        curActive := WinGetID("A")
-
-        ; Only record original window if it's NOT the browser itself
-        if (curActive != hWnd) {
+        curActive := WinExist("A")
+        if (curActive && curActive != hWnd)
             OrigFocusHwnd := curActive
-        }
 
         WinActivate("ahk_id " hWnd)
-
-        ; Remove blind sleep, wait slightly only if not fully active yet
         if !WinActive("ahk_id " hWnd)
             WinWaitActive("ahk_id " hWnd, , 0.15)
 
         Send(keyToSend)
-
-        ; 400ms covers human scrolling intervals, avoiding focus ping-pong
         SetTimer RestoreFocusTask, -400
     }
 }
 #MaxThreadsPerHotkey 1
 
-; Right Click Close Tab
-RButton::
-{
+RButton:: {
     IsHoveringTabBar(&hWnd)
-
     if IsTargetBrowser(Opt_Right, hWnd) {
-        ; Send Middle Mouse Button (closes tabs natively without stealing focus)
-        Send("{MButton}")
+        ; 右键也应用修正过碰撞体积的闭合函数
+        SendCloseTabClick(hWnd)
         return
     }
-
-    ; Fallback to normal Right Click
     Send("{RButton Down}")
     KeyWait("RButton")
     Send("{RButton Up}")
